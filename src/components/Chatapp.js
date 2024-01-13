@@ -1,28 +1,67 @@
 import React, { useEffect, useState } from 'react'
 import OtherMessage from './message/OtherMessage'
 import SelfMessage from './message/SelfMessage'
-import Register from './Register';
 import {over} from 'stompjs';
 import SockJS from 'sockjs-client';
+import Login from './Login';
 var stompClient = null;
 const Chatapp = () => {
 
-    const[privateChats,setPrivateChats] = useState(new Map())
-    const [loading,setLoading] = useState(false);
-    const[publicChats,setPublicChats] = useState([])
-    const [tab,setTab] =useState("CHATROOM");
     const [userData,setUserData] = useState({
         username:"",
         receiverName:"",
         connected:false,
+        login:false,
         message:''
     })
 
-    // useEffect(()=>{
-    //     console.log(userData,privateChats);
-    // },[userData])
+    const storedMapString = localStorage.getItem(userData.username);
+    const storedMapArray = JSON.parse(storedMapString);
+    const storedMap = new Map(JSON.parse(storedMapArray))
+    const[privateChats,setPrivateChats] = useState(storedMap);
 
+
+    const localPublic =  localStorage.getItem('publicChats') ? JSON.parse(localStorage.getItem('publicChats')) : [];
+    const[publicChats,setPublicChats] = useState(localPublic)
+
+    const [loading,setLoading] = useState(false);
+    const [tab,setTab] =useState("CHATROOM");
+    
+
+    useEffect(()=>{
+        if(userData.login===true){
+            connect();
+        }
+        console.log(privateChats + " first effect");
+        const storedMapString = localStorage.getItem(userData.username);
+        const storedMapArray = JSON.parse(storedMapString);
+        const storedMap = new Map(JSON.parse(storedMapArray))
+        console.log(storedMap);
+        setPrivateChats(storedMap);
+        
+    },[userData.login,userData.username])
+
+    useEffect(()=>{
+        if(!localStorage.getItem("publicChats") || publicChats.length>0){
+            localStorage.setItem("publicChats",JSON.stringify(publicChats))
+        }
+        
+        if(localStorage.getItem(userData.username)===null){
+            console.log(" second useEffect");
+            localStorage.setItem(userData.username,JSON.stringify(JSON.stringify(Array.from(privateChats.entries()))));
+        }else if(localStorage.getItem(userData.username)){
+            const storedMapString = localStorage.getItem(userData.username);
+            console.log(storedMapString);
+            if(storedMapString.length< JSON.stringify(Array.from(privateChats.entries())).length){
+                localStorage.setItem(userData.username,JSON.stringify(JSON.stringify(Array.from(privateChats.entries()))));
+            }
+           
+        }
+
+    },[publicChats,privateChats])
+    
     const connect=()=>{
+        console.log(userData , "in connect");
         setLoading(true)
         let Sock = new SockJS("http://localhost:8080/ws");
         stompClient = over(Sock); 
@@ -34,6 +73,7 @@ const Chatapp = () => {
         stompClient.subscribe('/chatroom/public',onPublicMessagedReceived);
         stompClient.subscribe('/user/'+userData.username+'/private',onPrivateMessage);
         userJoin();
+        setLoading(false)
     }
 
     const userJoin=()=>{
@@ -43,20 +83,19 @@ const Chatapp = () => {
             status:"JOIN"
         };
         stompClient.send("/app/message",{},JSON.stringify(chatMessage));
+        
     }
 
     const onPublicMessagedReceived =(payload)=>{
         const payloadData = JSON.parse(payload.body);
         switch(payloadData.status){
             case "JOIN":
-                if(!privateChats.get(payloadData.senderName)){
+                if(!privateChats.has(payloadData.senderName) ){
                     privateChats.set(payloadData.senderName,[])
                     setPrivateChats(new Map(privateChats))
                 }
                 break;
             case "MESSAGE":
-                // publicChats.push(payloadData);
-                // setPublicChats([...publicChats]);
                 setPublicChats(p=>[...p,payloadData])
                 break;
         }
@@ -128,23 +167,11 @@ const Chatapp = () => {
             setUserData({...userData,"message":""})
         }
     }
-
-    const handleUsername=(event)=>{
-        const {value} = event.target;
-        setUserData({...userData,"username":value});
-    }
-
-    const registerUser= ()=>{
-        setLoading(true);
-        connect(); 
-    }
-
-
     
   return (
     <>
     {
-        userData.connected? (
+        (userData.connected && userData.username!=='' && !loading)? (
     <div className='chatapp-container'>
       <div className="user-list">
         <div className="user-list-top">
@@ -180,8 +207,8 @@ const Chatapp = () => {
                 :<SelfMessage key={index} content={chat.message}/> 
             })}
 
-            {tab!=="CHATROOM" && [...privateChats.get(tab)].map((chat,index)=>{
-                return chat.senderName!==userData.username ? 
+            {tab!=="CHATROOM" && [...privateChats?.get(tab)].map((chat,index)=>{
+                return chat.senderName!==userData.username  ? 
                 <OtherMessage key={index} content={chat.message} isGroupM={false}  senderName={chat.senderName}/>
                  :<SelfMessage key={index} content={chat.message}/>                 
             })}
@@ -194,7 +221,7 @@ const Chatapp = () => {
         </div>
       </div>
     </div>  
-        ):<Register registerUser={registerUser} handleUsername={handleUsername} loading={loading}/>
+        ):<Login setUserData={setUserData} connect={connect} setPrivateChats={setPrivateChats}/>
     }
     
     
